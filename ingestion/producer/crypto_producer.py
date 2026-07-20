@@ -1,4 +1,4 @@
-"""
+﻿"""
 Polls CoinGecko's free, keyless public API for live crypto market data
 and publishes each snapshot as an event.
 
@@ -11,6 +11,9 @@ pattern -- it's deliberately built to compare both platforms):
 Usage:
     pip install requests kafka-python-ng boto3
     python crypto_producer.py --interval-sec 60
+
+    # Single cycle then exit, for scheduler-driven runs (e.g. Airflow):
+    python crypto_producer.py --run-once
 """
 import argparse
 import json
@@ -24,7 +27,7 @@ from kafka.errors import KafkaError
 
 COINGECKO_URL = (
     "https://api.coingecko.com/api/v3/coins/markets"
-    "?vs_currency=usd&order=market_cap_desc&per_page=20&page=1&sparkline=false"
+    "?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false"
 )
 
 
@@ -62,7 +65,7 @@ def get_kafka_producer(bootstrap_servers):
 def send_via_kafka(producer, topic, records):
     for record in records:
         future = producer.send(topic, value=record)
-        future.get(timeout=5)  # raises on failure, forcing the fallback path
+        future.get(timeout=5)
     producer.flush()
 
 
@@ -74,10 +77,11 @@ def send_via_kinesis_firehose(firehose_client, delivery_stream_name, records):
         )
 
 
-def main(kafka_bootstrap, kafka_topic, firehose_stream, region, interval_sec):
+def main(kafka_bootstrap, kafka_topic, firehose_stream, region, interval_sec, run_once=False):
     firehose_client = boto3.client("firehose", region_name=region)
 
-    print(f"Starting crypto ingestion loop, polling every {interval_sec}s")
+    mode = "single run" if run_once else f"looping every {interval_sec}s"
+    print(f"Starting crypto ingestion ({mode})")
     print(f"  Primary:  Kafka ({kafka_bootstrap}, topic={kafka_topic})")
     print(f"  Fallback: Kinesis Firehose ({firehose_stream})")
 
@@ -87,6 +91,8 @@ def main(kafka_bootstrap, kafka_topic, firehose_stream, region, interval_sec):
             print(f"[{datetime.now().isoformat()}] Fetched {len(records)} coins from CoinGecko")
         except requests.RequestException as e:
             print(f"  CoinGecko fetch failed: {e}. Skipping this cycle.")
+            if run_once:
+                raise
             time.sleep(interval_sec)
             continue
 
@@ -102,6 +108,12 @@ def main(kafka_bootstrap, kafka_topic, firehose_stream, region, interval_sec):
                 print(f"  OK: sent {len(records)} records via Kinesis Firehose (fallback)")
             except Exception as fe:
                 print(f"  FAILED on fallback path too: {fe}")
+                if run_once:
+                    raise
+
+        if run_once:
+            print("Run-once mode: exiting after one cycle.")
+            return
 
         time.sleep(interval_sec)
 
@@ -113,5 +125,8 @@ if __name__ == "__main__":
     parser.add_argument("--firehose-stream", default="crypto-prices-fallback")
     parser.add_argument("--region", default="us-east-1")
     parser.add_argument("--interval-sec", type=int, default=60)
+    parser.add_argument("--run-once", action="store_true",
+                         help="Fetch and send exactly one cycle, then exit (for scheduler-driven runs)")
     args = parser.parse_args()
-    main(args.kafka_bootstrap, args.kafka_topic, args.firehose_stream, args.region, args.interval_sec)
+    main(args.kafka_bootstrap, args.kafka_topic, args.firehose_stream, args.region,
+         args.interval_sec, args.run_once)
