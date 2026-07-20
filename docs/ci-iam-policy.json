@@ -6,8 +6,8 @@
       "Effect": "Allow",
       "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"],
       "Resource": [
-        "arn:aws:s3:::crypto-platform-datalake-aneek",
-        "arn:aws:s3:::crypto-platform-datalake-aneek/*"
+        "arn:aws:s3:::crypto-platform-datalake",
+        "arn:aws:s3:::crypto-platform-datalake/*"
       ]
     },
     {

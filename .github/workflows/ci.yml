@@ -10,7 +10,7 @@ env:
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   AWS_DEFAULT_REGION: us-east-1
-  DATALAKE_BUCKET: crypto-platform-datalake-aneek  # not sensitive, just a bucket name
+  DATALAKE_BUCKET: crypto-platform-datalake  # not sensitive, just a bucket name
 
 jobs:
   python-lint:
