@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  AWS_DEFAULT_REGION: us-east-1
+  DATALAKE_BUCKET: crypto-platform-datalake-aneek  # not sensitive, just a bucket name
+
+jobs:
+  python-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check ingestion/ tests/
+
+  kafka-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+
+      - name: Start local Kafka
+        working-directory: ingestion
+        run: docker compose up -d zookeeper kafka
+
+      - name: Wait for Kafka to be ready
+        run: sleep 15
+
+      - name: Run rigorous Kafka ingestion validation
+        run: python tests/test_kafka_ingestion.py --bucket "$DATALAKE_BUCKET"
+
+      - name: Show container logs on failure
+        if: failure()
+        working-directory: ingestion
+        run: docker compose logs
+
+      - name: Tear down
+        if: always()
+        working-directory: ingestion
+        run: docker compose down -v
+
+  kinesis-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+
+      - name: Run rigorous Kinesis Firehose validation
+        # Genuinely takes several minutes -- Firehose buffers before
+        # flushing to S3 (see test file for details). Not a hang.
+        run: python tests/test_kinesis_fallback.py --bucket "$DATALAKE_BUCKET" --stream crypto-prices-fallback
